@@ -382,7 +382,7 @@ class ReaderThread(threading.Thread):
                     (timestamp - col.values[key][3] >= self.dedupinterval))
                     and col.values[key][0] != value):
                     col.lines_sent += 1
-                    if not self.readerq.nput(col.values[key][2]):
+                    if not self.readerq.nput((col.name, col.values[key][2])):
                         self.lines_dropped += 1
 
             # now we can reset for the next pass and send the line we actually
@@ -395,7 +395,7 @@ class ReaderThread(threading.Thread):
             col.values[key] = (value, False, line, timestamp)
 
         col.lines_sent += 1
-        if not self.readerq.nput(line):
+        if not self.readerq.nput((col.name, line)):
             self.lines_dropped += 1
 
 
@@ -406,7 +406,8 @@ class SenderThread(threading.Thread):
        buffering we might need to do if we can't establish a connection
        and we need to spool to disk.  That isn't implemented yet."""
 
-    def __init__(self, reader, dryrun, hosts, self_report_stats, tags, reconnectinterval):
+    def __init__(self, reader, dryrun, hosts, self_report_stats, tags, reconnectinterval,
+                 suppress_tags=None):
         """Constructor.
 
         Args:
@@ -424,6 +425,7 @@ class SenderThread(threading.Thread):
         self.dryrun = dryrun
         self.reader = reader
         self.tags = sorted(tags.items())
+        self.suppress_tags = suppress_tags or set()
         self.hosts = hosts  # A list of (host, port) pairs.
         # Randomize hosts to help even out the load.
         random.shuffle(self.hosts)
@@ -589,7 +591,7 @@ class SenderThread(threading.Thread):
                 strout = ["tcollector.%s %d %d %s"
                           % (x[0], ts, x[2], x[1]) for x in strs]
                 for string in strout:
-                    self.sendq.append(string)
+                    self.sendq.append(('tcollector.py', string))
 
             break  # TSD is alive.
 
@@ -652,10 +654,11 @@ class SenderThread(threading.Thread):
                 LOG.error('Failed to connect to %s:%d', self.host, self.port)
                 self.blacklist_connection()
 
-    def add_tags_to_line(self, line):
-        for tag, value in self.tags:
-            if ' %s=' % tag not in line:
-                line += ' %s=%s' % (tag, value)
+    def add_tags_to_line(self, colname, line):
+        if colname not in self.suppress_tags:
+            for tag, value in self.tags:
+                if ' %s=' % tag not in line:
+                    line += ' %s=%s' % (tag, value)
         return line
 
     def send_data(self):
@@ -666,12 +669,12 @@ class SenderThread(threading.Thread):
 
         # in case of logging we use less efficient variant
         if LOG.level == logging.DEBUG:
-            for line in self.sendq:
-                line = "put %s" % self.add_tags_to_line(line)
+            for colname, line in self.sendq:
+                line = "put %s" % self.add_tags_to_line(colname, line)
                 out += line + "\n"
                 LOG.debug('SENDING: %s', line)
         else:
-            out = "".join("put %s\n" % self.add_tags_to_line(line) for line in self.sendq)
+            out = "".join("put %s\n" % self.add_tags_to_line(colname, line) for colname, line in self.sendq)
 
         if not out:
             LOG.debug('send_data no data?')
@@ -753,6 +756,10 @@ def parse_cmdline(argv):
                       default=[], metavar='TAG',
                       help='Tags to append to all timeseries we send, '
                            'e.g.: -t TAG=VALUE -t TAG2=VALUE')
+    parser.add_option('--no-tags', dest='notags', action='append',
+                      default=[], metavar='COLLECTOR_NAME',
+                      help='Suppress the addition of global tags to these named '
+                           'collectors, e.g.: -n iostat.py -n procstats.py')
     parser.add_option('-P', '--pidfile', dest='pidfile',
                       default='/var/run/tcollector.pid',
                       metavar='FILE', help='Write our pidfile')
@@ -909,7 +916,8 @@ def main(argv):
 
     # and setup the sender to start writing out to the tsd
     sender = SenderThread(reader, options.dryrun, options.hosts,
-                          not options.no_tcollector_stats, tags, options.reconnectinterval)
+                          not options.no_tcollector_stats, tags, options.reconnectinterval,
+                          suppress_tags=set(c.strip() for c in options.notags))
     sender.start()
     LOG.info('SenderThread startup complete')
 
