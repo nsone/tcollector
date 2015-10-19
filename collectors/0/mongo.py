@@ -22,15 +22,28 @@ except ImportError:
 
 from collectors.lib import utils
 
-HOST = 'localhost'
+USER = None
+PASS = None
+try:
+    from collectors.etc import mongoconf
+    USER, PASS = mongoconf.get_user_password()
+except ImportError:
+    # no user/pass
+    pass
+
+if USER is not None and PASS is not None:
+    HOST = 'mongodb://%s:%s@localhost' % (USER, PASS)
+else:
+    HOST = 'localhost'
 PORT = 27017
-INTERVAL = 15
+INTERVAL = 60
 METRICS = (
     'backgroundFlushing.average_ms',
     'backgroundFlushing.flushes',
     'backgroundFlushing.total_ms',
     'connections.available',
     'connections.current',
+    'connections.totalCreated',
     'cursors.totalOpen',
     'cursors.timedOut',
     'dur.commits',
