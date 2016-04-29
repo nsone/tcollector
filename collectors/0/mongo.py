@@ -79,7 +79,11 @@ def main():
        print >>sys.stderr, "error: Python module `pymongo' is missing"
        return 13
 
-    c = pymongo.Connection(host=HOST, port=PORT)
+    # pymongo < 3.0 has Connection, not MongoClient
+    if hasattr(pymongo, 'Connection'):
+        c = pymongo.Connection(host=HOST, port=PORT)
+    else:
+        c = pymongo.MongoClient(host=HOST, port=PORT)
 
     while True:
         res = c.admin.command('serverStatus')
