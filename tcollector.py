@@ -723,6 +723,9 @@ class SenderThread(threading.Thread):
         if LOG.level == logging.DEBUG:
             for line in self.sendq:
                 metric_data = self.parse_metric(line)
+                # tags is being reserved, so using extra_tags
+                metric_data["extra_tags"] = metric_data["tags"]
+                del metric_data["tags"]
                 LOG_METRICS.debug(json.dumps(metric_data))
 
                 line = "put %s" % self.add_tags_to_line(line)
