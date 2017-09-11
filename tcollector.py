@@ -727,7 +727,6 @@ class SenderThread(threading.Thread):
 
                 line = "put %s" % self.add_tags_to_line(line)
                 out += line + "\n"
-                LOG.debug('SENDING: %s', line)
         else:
             out = "".join("put %s\n" % self.add_tags_to_line(line) for line in self.sendq)
 
