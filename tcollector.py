@@ -47,7 +47,9 @@ from optparse import OptionParser
 COLLECTORS = {}
 GENERATION = 0
 DEFAULT_LOG = '/var/log/tcollector.log'
+DEFAULT_METRIC = '/var/log/tcollector_metrics.log'
 LOG = logging.getLogger('tcollector')
+LOG_METRICS = logging.getLogger('tcollector_metrics')
 ALIVE = True
 # If the SenderThread catches more than this many consecutive uncaught
 # exceptions, something is not right and tcollector will shutdown.
@@ -680,6 +682,35 @@ class SenderThread(threading.Thread):
                 line += ' %s=%s' % (tag, value)
         return line
 
+    def parse_metric(self, line):
+        # print " %s" % line
+        parts = line.split(None, 3)
+        # not all metrics have metric-specific tags
+        if len(parts) == 4:
+          (metric, timestamp, value, raw_tags) = parts
+        else:
+          (metric, timestamp, value) = parts
+          raw_tags = ""
+        # process the tags
+        metric_tags = {}
+        for tag in raw_tags.strip().split():
+            (tag_key, tag_value) = tag.split("=", 1)
+            metric_tags[tag_key] = tag_value
+        metric_entry = {}
+        metric_entry["metric"] = metric
+        metric_entry["timestamp"] = long(timestamp)
+        metric_entry["value"] = float(value)
+        metric_entry["tags"] = dict(self.tags).copy()
+        if len(metric_tags) + len(metric_entry["tags"]) > self.maxtags:
+          metric_tags_orig = set(metric_tags)
+          subset_metric_keys = frozenset(metric_tags[:len(metric_tags[:self.maxtags-len(metric_entry["tags"])])])
+          metric_tags = dict((k, v) for k, v in metric_tags.iteritems() if k in subset_metric_keys)
+          LOG.error("Exceeding maximum permitted metric tags - removing %s for metric %s",
+                    str(metric_tags_orig - set(metric_tags)), metric)
+        metric_entry["tags"].update(metric_tags)
+
+        return metric_entry
+
     def send_data(self):
         """Sends outstanding data in self.sendq to the TSD in one operation."""
         if self.http:
@@ -691,9 +722,11 @@ class SenderThread(threading.Thread):
         # in case of logging we use less efficient variant
         if LOG.level == logging.DEBUG:
             for line in self.sendq:
+                metric_data = self.parse_metric(line)
+                LOG_METRICS.debug(json.dumps(metric_data))
+
                 line = "put %s" % self.add_tags_to_line(line)
                 out += line + "\n"
-                LOG.debug('SENDING: %s', line)
         else:
             out = "".join("put %s\n" % self.add_tags_to_line(line) for line in self.sendq)
 
@@ -725,32 +758,7 @@ class SenderThread(threading.Thread):
         """Sends outstanding data in self.sendq to TSD in one HTTP API call."""
         metrics = []
         for line in self.sendq:
-            # print " %s" % line
-            parts = line.split(None, 3)
-            # not all metrics have metric-specific tags
-            if len(parts) == 4:
-              (metric, timestamp, value, raw_tags) = parts
-            else:
-              (metric, timestamp, value) = parts
-              raw_tags = ""
-            # process the tags
-            metric_tags = {}
-            for tag in raw_tags.strip().split():
-                (tag_key, tag_value) = tag.split("=", 1)
-                metric_tags[tag_key] = tag_value
-            metric_entry = {}
-            metric_entry["metric"] = metric
-            metric_entry["timestamp"] = long(timestamp)
-            metric_entry["value"] = float(value)
-            metric_entry["tags"] = dict(self.tags).copy()
-            if len(metric_tags) + len(metric_entry["tags"]) > self.maxtags:
-              metric_tags_orig = set(metric_tags)
-              subset_metric_keys = frozenset(metric_tags[:len(metric_tags[:self.maxtags-len(metric_entry["tags"])])])
-              metric_tags = dict((k, v) for k, v in metric_tags.iteritems() if k in subset_metric_keys)
-              LOG.error("Exceeding maximum permitted metric tags - removing %s for metric %s",
-                        str(metric_tags_orig - set(metric_tags)), metric)
-            metric_entry["tags"].update(metric_tags)
-            metrics.append(metric_entry)
+            metrics.append(self.parse_metric(line))
 
         if self.dryrun:
             print "Would have sent:\n%s" % json.dumps(metrics,
@@ -791,20 +799,25 @@ class SenderThread(threading.Thread):
             #   print line,
 
 
-def setup_logging(logfile=DEFAULT_LOG, max_bytes=None, backup_count=None):
+def setup_logging(logfile=DEFAULT_LOG, metricfile=DEFAULT_METRIC, max_bytes=None, backup_count=None):
     """Sets up logging and associated handlers."""
 
     LOG.setLevel(logging.INFO)
+    LOG_METRICS.setLevel(logging.DEBUG)
     if backup_count is not None and max_bytes is not None:
         assert backup_count > 0
         assert max_bytes > 0
         ch = RotatingFileHandler(logfile, 'a', max_bytes, backup_count)
+        ch_metrics = RotatingFileHandler(metricfile, 'a', max_bytes, backup_count)
     else:  # Setup stream handler.
         ch = logging.StreamHandler(sys.stdout)
+        ch_metrics = logging.StreamHandler(sys.stdout)
 
     ch.setFormatter(logging.Formatter('%(asctime)s %(name)s[%(process)d] '
                                       '%(levelname)s: %(message)s'))
     LOG.addHandler(ch)
+    ch_metrics.setFormatter(logging.Formatter('%(message)s'))
+    LOG_METRICS.addHandler(ch_metrics)
 
 
 def parse_cmdline(argv):
@@ -836,6 +849,7 @@ def parse_cmdline(argv):
             'host': 'localhost',
             'backup_count': 1,
             'logfile': '/var/log/tcollector.log',
+            'metricfile': '/var/log/tcollector_metrics.log',
             'cdir': default_cdir,
             'ssl': False,
             'stdin': False,
@@ -915,6 +929,9 @@ def parse_cmdline(argv):
     parser.add_option('--logfile', dest='logfile', type='str',
                         default=DEFAULT_LOG,
                         help='Filename where logs are written to.')
+    parser.add_option('--metricfile', dest='metricfile', type='str',
+                        default=DEFAULT_METRIC,
+                        help='Filename where metrics are written to.')
     parser.add_option('--reconnect-interval',dest='reconnectinterval', type='int',
                         default=defaults['reconnectinterval'], metavar='RECONNECTINTERVAL',
                         help='Number of seconds after which the connection to'
@@ -994,7 +1011,8 @@ def main(argv):
 
     if options.daemonize:
         daemonize()
-    setup_logging(options.logfile, options.max_bytes or None,
+
+    setup_logging(options.logfile, options.metricfile, options.max_bytes or None,
                   options.backup_count or None)
 
     if options.verbose:
