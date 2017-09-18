@@ -682,7 +682,7 @@ class SenderThread(threading.Thread):
                 line += ' %s=%s' % (tag, value)
         return line
 
-    def parse_metric(self, line):
+    def parse_metric(self, line, length_check=True):
         # print " %s" % line
         parts = line.split(None, 3)
         # not all metrics have metric-specific tags
@@ -701,7 +701,7 @@ class SenderThread(threading.Thread):
         metric_entry["timestamp"] = long(timestamp)
         metric_entry["value"] = float(value)
         metric_entry["tags"] = dict(self.tags).copy()
-        if len(metric_tags) + len(metric_entry["tags"]) > self.maxtags:
+        if length_check and len(metric_tags) + len(metric_entry["tags"]) > self.maxtags:
           metric_tags_orig = set(metric_tags)
           metric_tags_keys = metric_tags.keys()
           subset_metric_keys = frozenset(metric_tags_keys[:len(metric_tags_keys[:self.maxtags-len(metric_entry["tags"])])])
@@ -723,7 +723,8 @@ class SenderThread(threading.Thread):
         # in case of logging we use less efficient variant
         if LOG.level == logging.DEBUG:
             for line in self.sendq:
-                metric_data = self.parse_metric(line)
+                # always just put tags and defaults into tags because elk can take it all
+                metric_data = self.parse_metric(line, length_check=False)
                 LOG_METRICS.debug(json.dumps(metric_data))
 
                 line = "put %s" % self.add_tags_to_line(line)
