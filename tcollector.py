@@ -725,6 +725,10 @@ class SenderThread(threading.Thread):
             for line in self.sendq:
                 # always just put tags and defaults into tags because elk can take it all
                 metric_data = self.parse_metric(line, length_check=False)
+                for k,v in metric_data["tags"].iteritems():
+                    if k not in self.tags.keys()
+                        metric_data[k] = v
+                metric_data.pop('tags', None)
                 LOG_METRICS.debug(json.dumps(metric_data))
 
                 line = "put %s" % self.add_tags_to_line(line)
