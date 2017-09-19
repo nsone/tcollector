@@ -36,6 +36,7 @@ import time
 import json
 import urllib2
 import base64
+import re
 from logging.handlers import RotatingFileHandler
 from Queue import Queue
 from Queue import Empty
@@ -419,7 +420,7 @@ class SenderThread(threading.Thread):
 
     def __init__(self, reader, dryrun, hosts, self_report_stats, tags,
                  reconnectinterval=0, http=False, http_username=None,
-                 http_password=None, ssl=False, maxtags=8):
+                 http_password=None, ssl=False, maxtags=8, elk_reserved=[]):
         """Constructor.
 
         Args:
@@ -457,6 +458,8 @@ class SenderThread(threading.Thread):
         self.sendq = []
         self.self_report_stats = self_report_stats
         self.maxtags = maxtags # The maximum number of tags TSD will accept.
+        self.elk_reserved = [re.compile("^%s$" % i) for i in elk_reserved ]
+
 
     def pick_connection(self):
         """Picks up a random host/port connection."""
@@ -727,9 +730,13 @@ class SenderThread(threading.Thread):
                 metric_data = self.parse_metric(line, length_check=False)
                 for k,v in metric_data["tags"].iteritems():
                     if k not in self.tags.keys()
+                        for i in self.elk_reserved:
+                            if i.match(k):
+                                k = "%s_tag" % k
                         metric_data[k] = v
                 metric_data.pop('tags', None)
                 LOG_METRICS.debug(json.dumps(metric_data))
+
 
                 line = "put %s" % self.add_tags_to_line(line)
                 out += line + "\n"
@@ -860,7 +867,8 @@ def parse_cmdline(argv):
             'ssl': False,
             'stdin': False,
             'daemonize': False,
-            'hosts': False
+            'hosts': False,
+            'elk_reserved': [ 'beat.*','host', 'network', 'region','pop','type', 'offset', 'input_type' ]
         }
     except:
         sys.stderr.write("Unexpected error: %s" % sys.exc_info()[0])
@@ -905,6 +913,10 @@ def parse_cmdline(argv):
                         default=defaults['tags'], metavar='TAG',
                         help='Tags to append to all timeseries we send, '
                             'e.g.: -t TAG=VALUE -t TAG2=VALUE')
+    parser.add_option('-e', '--elk-reserved', dest='elk_reserved', action='append',
+                        default=defaults['elk_reserved'], metavar='RESERVED',
+                        help='Tags to append to all timeseries we send, '
+                            'e.g.: -e RESERVED=VALUE -e RESERVED=VALUE')
     parser.add_option('-P', '--pidfile', dest='pidfile',
                         default=defaults['pidfile'],
                         metavar='FILE', help='Write our pidfile')
@@ -1081,7 +1093,7 @@ def main(argv):
     sender = SenderThread(reader, options.dryrun, options.hosts,
                           not options.no_tcollector_stats, tags, options.reconnectinterval,
                           options.http, options.http_username,
-                          options.http_password, options.ssl, options.maxtags)
+                          options.http_password, options.ssl, options.maxtags, options.elk_reserved)
     sender.start()
     LOG.info('SenderThread startup complete')
 
