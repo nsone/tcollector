@@ -726,7 +726,7 @@ class SenderThread(threading.Thread):
                 # always just put tags and defaults into tags because elk can take it all
                 metric_data = self.parse_metric(line, length_check=False)
                 for k,v in metric_data["tags"].iteritems():
-                    if k not in self.tags.keys()
+                    if k not in self.tags:
                         metric_data[k] = v
                 metric_data.pop('tags', None)
                 LOG_METRICS.debug(json.dumps(metric_data))
