@@ -868,7 +868,7 @@ def parse_cmdline(argv):
             'stdin': False,
             'daemonize': False,
             'hosts': False,
-            'elk_reserved': [ 'beat.*','host', 'network', 'region','pop','type', 'offset', 'input_type' ]
+            'elk_reserved': [ 'beat.*', 'host', 'network', 'region', 'pop', 'type', 'offset', 'input_type' ]
         }
     except:
         sys.stderr.write("Unexpected error: %s" % sys.exc_info()[0])
