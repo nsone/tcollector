@@ -727,7 +727,11 @@ class SenderThread(threading.Thread):
         if LOG.level == logging.DEBUG:
             for line in self.sendq:
                 # always just put tags and defaults into tags because elk can take it all
-                metric_data = self.parse_metric(line, length_check=False)
+                try:
+                    metric_data = self.parse_metric(line, length_check=False)
+                except ValueError:
+                    LOG.debug("ValueError caught. Ignoring: %s" % line)
+                    continue
                 for k,v in metric_data["tags"].iteritems():
                     if k not in dict(self.tags):
                         for i in self.elk_reserved:
@@ -771,7 +775,11 @@ class SenderThread(threading.Thread):
         """Sends outstanding data in self.sendq to TSD in one HTTP API call."""
         metrics = []
         for line in self.sendq:
-            metrics.append(self.parse_metric(line))
+            try:
+                metrics.append(self.parse_metric(line))
+            except ValueError:
+                LOG.debug("ValueError caught. Ignoring: %s" % line)
+                continue
 
         if self.dryrun:
             print "Would have sent:\n%s" % json.dumps(metrics,
