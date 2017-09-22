@@ -701,7 +701,7 @@ class SenderThread(threading.Thread):
             metric_tags[tag_key] = tag_value
         metric_entry = {}
         metric_entry["metric"] = metric
-        metric_entry["timestamp"] = long(timestamp)
+        metric_entry["@timestamp"] = long(timestamp)
         metric_entry["value"] = float(value)
         metric_entry["tags"] = dict(self.tags).copy()
         if length_check and len(metric_tags) + len(metric_entry["tags"]) > self.maxtags:
@@ -1383,7 +1383,7 @@ def spawn_collector(col):
     # other logic and it makes no sense to update the last spawn time if the
     # collector didn't actually start.
     col.lastspawn = int(time.time())
-    # Without setting last_datapoint here, a long running check (>15s) will be 
+    # Without setting last_datapoint here, a long running check (>15s) will be
     # killed by check_children() the first time check_children is called.
     col.last_datapoint = col.lastspawn
     set_nonblocking(col.proc.stdout.fileno())
