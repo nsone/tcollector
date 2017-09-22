@@ -20,6 +20,7 @@
 # by Mark Smith <msmith@stumbleupon.com>.
 #
 
+import datetime as DT
 import atexit
 import errno
 import fcntl
@@ -701,7 +702,7 @@ class SenderThread(threading.Thread):
             metric_tags[tag_key] = tag_value
         metric_entry = {}
         metric_entry["metric"] = metric
-        metric_entry["@timestamp"] = long(timestamp)
+        metric_entry["@timestamp"] = DT.datetime.utcfromtimestamp(long(timestamp)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         metric_entry["value"] = float(value)
         metric_entry["tags"] = dict(self.tags).copy()
         if length_check and len(metric_tags) + len(metric_entry["tags"]) > self.maxtags:
