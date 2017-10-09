@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/typepython
 # This file is part of tcollector.
 # Copyright (C) 2010  The tcollector Authors.
 #
@@ -122,6 +122,7 @@ def main():
         # proc.meminfo
         f_meminfo.seek(0)
         ts = int(time.time())
+        meminfo_cached, meminfo_total, meminfo_free = None, None, None
         for line in f_meminfo:
             m = re.match("(\w+):\s+(\d+)\s+(\w+)", line)
             if m:
@@ -130,8 +131,18 @@ def main():
                     value = str(int(m.group(2)) * 1024)
                 else:
                     value = m.group(2)
+                matched_memtype = m.group(1).lower()
+                if matched_memtype == 'cached':
+                    meminfo_cached = long(value)
+                elif matched_memtype == 'memtotal':
+                    meminfo_total = long(value)
+                elif matched_memtype == 'memfree':
+                    meminfo_free = long(value)
                 print ("proc.meminfo.%s %d %s"
-                        % (m.group(1).lower(), ts, value))
+                        % (matched_memtype, ts, value))
+        if meminfo_cached is not None and meminfo_total is not None and meminfo_free is not None:
+            print ("proc.meminfo.percent_mem_used %d %s"
+                        % (ts, ((meminfo_total - meminfo_free - meminfo_cached) / float(meminfo_total)) * 100))
 
         # proc.vmstat
         f_vmstat.seek(0)
