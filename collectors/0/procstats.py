@@ -1,4 +1,4 @@
-#!/usr/bin/typepython
+#!/usr/bin/env python
 # This file is part of tcollector.
 # Copyright (C) 2010  The tcollector Authors.
 #
