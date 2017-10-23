@@ -460,6 +460,8 @@ class SenderThread(threading.Thread):
         self.self_report_stats = self_report_stats
         self.maxtags = maxtags # The maximum number of tags TSD will accept.
         self.elk_reserved = [re.compile("^%s$" % i) for i in elk_reserved ]
+        self.connect_failed_count = 0
+        self.last_failed_time = 0
 
 
     def pick_connection(self):
@@ -550,6 +552,10 @@ class SenderThread(threading.Thread):
         if self.last_verify > time.time() - 60:
             return True
 
+        # If we keep retrying for a good amount of time in the last 30', don't verify anymore
+        if self.connect_failed_count >= 4 and self.last_failed_time > time.time() - 1800:
+            return True
+
         # in case reconnect is activated, check if it's time to reconnect
         if self.reconnectinterval > 0 and self.time_reconnect < time.time() - self.reconnectinterval:
             # closing the connection and indicating that we need to reconnect.
@@ -568,6 +574,8 @@ class SenderThread(threading.Thread):
         except socket.error, msg:
             self.tsd = None
             self.blacklist_connection()
+            self.connect_failed_count += 1
+            self.last_failed_time = time.time()
             return False
 
         bufsize = 4096
@@ -580,6 +588,8 @@ class SenderThread(threading.Thread):
             except socket.error, msg:
                 self.tsd = None
                 self.blacklist_connection()
+                self.connect_failed_count += 1
+                self.last_failed_time = time.time()
                 return False
 
             # If we don't get a response to the `version' request, the TSD
@@ -587,6 +597,8 @@ class SenderThread(threading.Thread):
             if not buf:
                 self.tsd = None
                 self.blacklist_connection()
+                self.connect_failed_count += 1
+                self.last_failed_time = time.time()
                 return False
 
             # Woah, the TSD has a lot of things to tell us...  Let's make
@@ -623,6 +635,7 @@ class SenderThread(threading.Thread):
 
         # if we get here, we assume the connection is good
         self.last_verify = time.time()
+        self.connect_failed_count = 0
         return True
 
     def maintain_conn(self):
@@ -748,6 +761,12 @@ class SenderThread(threading.Thread):
 
                 line = "put %s" % self.add_tags_to_line(line)
                 out += line + "\n"
+            # This situation is when tsdb server is running into a state of accept connection but no more 
+            # command can be sent,
+            # In this case we would rather flush the queue, and keep sending metrics to log file for others consume
+            if self.tsd is None:
+                self.sendq = []
+                return
         else:
             out = "".join("put %s\n" % self.add_tags_to_line(line) for line in self.sendq)
 
